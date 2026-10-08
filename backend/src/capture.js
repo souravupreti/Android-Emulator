@@ -6,6 +6,9 @@ function startAndroidCapture(videoSource) {
   const width = 540;
   const height = 1200;
 
+  // I420 frame size:
+  // Y = width * height
+  // U + V = width * height / 2
   const frameSize = Math.floor(width * height * 1.5);
 
   const adb = spawn("adb", [
@@ -17,24 +20,17 @@ function startAndroidCapture(videoSource) {
     "2000000",
     "--output-format",
     "h264",
-    "-",
+    "-"
   ]);
 
   adb.on("error", (error) => {
     console.error("ADB process error:", error);
   });
 
+  // Keep FFmpeg simple and stable for now.
   const ffmpeg = spawn("ffmpeg", [
     "-loglevel",
     "error",
-    "-fflags",
-    "nobuffer",
-    "-flags",
-    "low_delay",
-    "-analyzeduration",
-    "0",
-    "-probesize",
-    "32",
     "-f",
     "h264",
     "-i",
@@ -60,7 +56,9 @@ function startAndroidCapture(videoSource) {
     adbBytes += chunk.length;
 
     if (adbBytes % (1024 * 1024) < chunk.length) {
-      console.log(`ADB: ${(adbBytes / 1024 / 1024).toFixed(2)} MB`);
+      console.log(
+        `ADB: ${(adbBytes / 1024 / 1024).toFixed(2)} MB`
+      );
     }
   });
 
@@ -71,23 +69,27 @@ function startAndroidCapture(videoSource) {
 
     buffer = Buffer.concat([buffer, chunk]);
 
-    const completeFrames = Math.floor(buffer.length / frameSize);
+    const completeFrames = Math.floor(
+      buffer.length / frameSize
+    );
 
     if (completeFrames === 0) {
       return;
     }
 
-    // Find the newest complete frame
-    const latestOffset = (completeFrames - 1) * frameSize;
+    // Use the newest complete frame.
+    const latestOffset =
+      (completeFrames - 1) * frameSize;
 
     const latestFrame = buffer.subarray(
       latestOffset,
       latestOffset + frameSize
     );
 
-    // Remove all complete frames from the buffer.
-    // This intentionally discards older frames.
-    buffer = buffer.subarray(completeFrames * frameSize);
+    // Discard older complete frames.
+    buffer = buffer.subarray(
+      completeFrames * frameSize
+    );
 
     videoSource.onFrame({
       width,
@@ -116,7 +118,10 @@ function startAndroidCapture(videoSource) {
     console.log("FFmpeg stopped:", code);
   });
 
-  return { adb, ffmpeg };
+  return {
+    adb,
+    ffmpeg,
+  };
 }
 
 module.exports = {
