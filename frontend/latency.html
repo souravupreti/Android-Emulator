@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Latency Test</title>
+
+  <style>
+    body {
+      margin: 0;
+      background: black;
+      color: white;
+      font-family: Arial, sans-serif;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      height: 100vh;
+    }
+
+    #time {
+      font-size: 32px;
+      text-align: center;
+    }
+  </style>
+</head>
+
+<body>
+
+  <body>
+  <div id="timestamp"></div>
+
+  <script>
+    async function updateTime() {
+      try {
+        const response = await fetch("/time");
+        const data = await response.json();
+
+        document.getElementById("timestamp").textContent = data.time;
+      } catch (error) {
+        console.error(error);
+      }
+    }
+
+    setInterval(updateTime, 100);
+    updateTime();
+  </script>
+</body>
+
+</body>
+</html>
