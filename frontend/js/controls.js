@@ -1,7 +1,29 @@
 function setupControls(video, sendMessage) {
   let swipeStart = null;
+  let lastSwipeTime = 0;
+
+  function dispatchInput(msg) {
+    // Attach telemetry identifier and timestamp
+    msg.requestId = "inp_" + Math.random().toString(36).slice(2, 9);
+    msg.clientTimestamp = Date.now();
+
+    if (window.latencyManager && typeof window.latencyManager.recordInputDispatch === "function") {
+      window.latencyManager.recordInputDispatch(msg);
+    }
+
+    sendMessage(msg);
+  }
+
+  // Expose dispatchInput globally for testing and probes
+  window.sendControlMessage = dispatchInput;
 
   video.addEventListener("click", (event) => {
+    // If a swipe/drag occurred recently (< 450ms), suppress the synthetic click event
+    if (Date.now() - lastSwipeTime < 450) {
+      console.log("Suppressed phantom tap after swipe");
+      return;
+    }
+
     video.focus();
     const rect = video.getBoundingClientRect();
 
@@ -13,7 +35,7 @@ function setupControls(video, sendMessage) {
 
     console.log("Browser tap:", videoX, videoY);
 
-    sendMessage({
+    dispatchInput({
       type: "tap",
       x: videoX,
       y: videoY,
@@ -35,14 +57,16 @@ function setupControls(video, sendMessage) {
       time: Date.now(),
     };
 
-    video.setPointerCapture(event.pointerId);
+    try {
+      video.setPointerCapture(event.pointerId);
+    } catch (e) {}
   });
 
   video.addEventListener("keydown", (event) => {
     event.preventDefault();
 
     if (event.key === "Backspace" || event.key === "Enter") {
-      sendMessage({
+      dispatchInput({
         type: "key",
         key: event.key,
       });
@@ -52,7 +76,7 @@ function setupControls(video, sendMessage) {
     }
 
     if (event.key.length === 1) {
-      sendMessage({
+      dispatchInput({
         type: "text",
         text: event.key,
       });
@@ -76,10 +100,11 @@ function setupControls(video, sendMessage) {
       (event.clientY - rect.top) *
       (video.videoHeight / rect.height);
 
-    const duration = Math.max(
-      100,
-      Math.min(1000, Date.now() - swipeStart.time)
-    );
+    const elapsed = Date.now() - swipeStart.time;
+
+    // In Android OS, a duration > 400ms is interpreted as a long-press drag.
+    // A natural fling/swipe requires a fast 150ms-300ms duration.
+    const duration = Math.min(300, Math.max(150, Math.round(elapsed * 0.35)));
 
     const distance = Math.hypot(
       endX - swipeStart.x,
@@ -87,18 +112,27 @@ function setupControls(video, sendMessage) {
     );
 
     console.log(
-      "Swipe:",
-      swipeStart.x,
-      swipeStart.y,
-      "->",
-      endX,
-      endY,
-      "distance:",
-      distance
+      "Pointerup distance:",
+      distance.toFixed(1),
+      "elapsed:",
+      elapsed,
+      "ms"
     );
 
-    if (distance > 30) {
-      sendMessage({
+    if (distance > 20) {
+      lastSwipeTime = Date.now();
+
+      console.log(
+        "Swipe dispatched:",
+        swipeStart.x.toFixed(1),
+        swipeStart.y.toFixed(1),
+        "->",
+        endX.toFixed(1),
+        endY.toFixed(1),
+        `(${duration}ms)`
+      );
+
+      dispatchInput({
         type: "swipe",
         startX: swipeStart.x,
         startY: swipeStart.y,
@@ -110,6 +144,41 @@ function setupControls(video, sendMessage) {
 
     swipeStart = null;
   });
+
+  video.addEventListener("pointercancel", () => {
+    swipeStart = null;
+  });
+
+  // Mouse wheel scroll support: Translates mouse wheel into natural Android vertical swipe
+  let wheelThrottle = 0;
+  video.addEventListener("wheel", (event) => {
+    event.preventDefault();
+    const now = Date.now();
+    if (now - wheelThrottle < 280) return;
+    wheelThrottle = now;
+
+    const midX = (video.videoWidth || 540) / 2;
+    const midY = (video.videoHeight || 1200) / 2;
+    const scrollDelta = 220; // swipe distance in video pixel space
+
+    // Scrolling down (deltaY > 0) -> swipe UP (content moves up)
+    // Scrolling up (deltaY < 0) -> swipe DOWN (content moves down)
+    const startY = event.deltaY > 0 ? midY + scrollDelta / 2 : midY - scrollDelta / 2;
+    const endY = event.deltaY > 0 ? midY - scrollDelta / 2 : midY + scrollDelta / 2;
+
+    console.log(`Wheel scroll: deltaY=${event.deltaY} -> swipe(${midX}, ${startY}) -> (${midX}, ${endY})`);
+
+    dispatchInput({
+      type: "swipe",
+      startX: midX,
+      startY: startY,
+      endX: midX,
+      endY: endY,
+      duration: 200,
+    });
+  }, { passive: false });
 }
 
 window.setupControls = setupControls;
+
+

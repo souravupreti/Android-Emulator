@@ -56,6 +56,8 @@ wss.on("connection", (socket) => {
     },
   });
 
+  let captureProcesses = null;
+
   socket.on("message", async (message) => {
     try {
       const data = JSON.parse(message.toString());
@@ -63,7 +65,7 @@ wss.on("connection", (socket) => {
       console.log("WebSocket message:", data.type, data);
 
       // Handle input events (tap, swipe, text, key)
-      const handled = await handleInputMessage(data);
+      const handled = await handleInputMessage(data, socket);
       if (handled) {
         return;
       }
@@ -81,7 +83,9 @@ wss.on("connection", (socket) => {
           })
         );
 
-        startAndroidCapture(webrtc.getVideoSource());
+        if (!captureProcesses) {
+          captureProcesses = startAndroidCapture(webrtc.getVideoSource());
+        }
         return;
       }
 
@@ -101,6 +105,25 @@ wss.on("connection", (socket) => {
     clearInterval(latencyTimer);
     console.log("Browser disconnected");
     webrtc.close();
+
+    if (captureProcesses) {
+      console.log("Cleaning up capture processes (ADB & FFmpeg)...");
+      try {
+        if (typeof captureProcesses.stop === "function") {
+          captureProcesses.stop();
+        } else {
+          if (captureProcesses.adb && !captureProcesses.adb.killed) {
+            captureProcesses.adb.kill();
+          }
+          if (captureProcesses.ffmpeg && !captureProcesses.ffmpeg.killed) {
+            captureProcesses.ffmpeg.kill();
+          }
+        }
+      } catch (e) {
+        console.error("Error stopping capture processes:", e);
+      }
+      captureProcesses = null;
+    }
   });
 });
 

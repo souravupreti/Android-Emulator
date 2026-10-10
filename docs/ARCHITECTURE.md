@@ -1,62 +1,36 @@
-# System Architecture
+# System Architecture & Technical Design
 
-## Overview
+> For the comprehensive, primary architecture document, see [ARCHITECTURE.md](../ARCHITECTURE.md) at the repository root.
 
-The application provides real-time streaming and interaction with an Android Emulator directly from a web browser using WebRTC and WebSockets.
+## Architectural Summary
 
----
-
-## Data & Control Flow
-
-### 1. Control & Input Pipeline (Browser to Device)
-
-User interactions (tap, swipe, text, key events) are captured in the browser, mapped to the emulator's coordinate space, and dispatched to Android via ADB:
+HealthTick connects a browser client and an Android device via a Node.js backend using WebRTC for media delivery and WebSockets for input and signaling:
 
 ```
-Browser
-  ↓ (WebSocket JSON events: tap, swipe, text, key)
-Node.js Backend (src/server.js -> src/input.js)
-  ↓ (Coordinate translation & ADB commands)
-ADB (src/android.js)
-  ↓ (adb shell input tap/swipe/text/keyevent)
-Android Emulator
+[ Android Device / Emulator ]
+       │
+       ├─ adb exec-out screenrecord (H.264 bitstream stdout)
+       │         │
+       │         ▼
+       │   [ FFmpeg Process: H.264 -> Raw I420 (yuv420p) ]
+       │         │
+       │         ▼
+       │   [ RTCVideoSource (@roamhq/wrtc) ]
+       │         │
+       │         ▼
+       │   [ WebRTC RTP / SRTP Stream ] ──────────────► [ Browser <video> Element ]
+       │                                                         │
+       ▲                                                         ▼
+       │                                                [ Pointer / Key Events ]
+       │                                                         │
+       ├─ adb shell input tap / swipe / text ◄───────────────────┘
+       │         (Dynamic Coordinate Mapping)
+       │
+[ Node.js Backend: WebSocket Signaling & Input Dispatch (Port 3000) ]
 ```
 
----
-
-### 2. Video Capture & Streaming Pipeline (Device to Browser)
-
-The Android emulator screen is captured in real-time, transcoded into raw video frames, injected into a WebRTC video source, and streamed to the client:
-
-```
-Android Emulator
-  ↓ (adb exec-out screenrecord --output-format h264)
-ADB screenrecord
-  ↓ (H.264 video stream via stdout pipe)
-FFmpeg
-  ↓ (Raw I420 / yuv420p frames via stdout pipe)
-RTCVideoSource (@roamhq/wrtc)
-  ↓ (WebRTC MediaStream video track)
-WebRTC
-  ↓ (RTP video packets over peer connection)
-Browser (<video> element)
-```
-
----
-
-## Component Responsibilities
-
-- **Frontend (`frontend/`)**:
-  - `index.html`: Main container rendering the emulator viewport.
-  - `css/style.css`: Viewport styling and responsive layout.
-  - `js/webrtc.js`: WebRTC peer connection, SDP negotiation, and media track playback.
-  - `js/controls.js`: Captures mouse/touch pointer events and keyboard input; translates coordinates relative to video resolution.
-  - `js/app.js`: Connects to WebSocket signaling and initializes modules.
-  - `latency.html`: Standalone verification page for latency diagnostics.
-
-- **Backend (`backend/src/`)**:
-  - `server.js`: Express HTTP server and WebSocket signaling server.
-  - `webrtc.js`: Node.js WebRTC peer connection and `RTCVideoSource` management using `@roamhq/wrtc`.
-  - `capture.js`: Manages ADB screenrecord and FFmpeg transcoding pipeline.
-  - `android.js`: Dynamic screen resolution query via `adb shell wm size` and ADB input execution.
-  - `input.js`: Dynamic coordinate mapping between browser video dimensions and physical Android screen resolution.
+### Component Structure
+- **Screen Capture (`backend/src/capture.js`)**: Pipes `adb exec-out screenrecord` into `ffmpeg` to produce raw I420 video frames, dropping older frames to maintain real-time responsiveness.
+- **WebRTC Server (`backend/src/webrtc.js`)**: Wraps `@roamhq/wrtc` to create headless `RTCPeerConnection` and inject raw video frames into an `RTCVideoSource` track.
+- **Input Management (`backend/src/android.js`, `backend/src/input.js`)**: Queries device physical screen size (`adb shell wm size`), maps coordinates from the browser's video viewport, and executes native input actions with timing metrics.
+- **Frontend Streaming Client (`frontend/js/webrtc.js`, `frontend/js/controls.js`, `frontend/js/latency.js`)**: Manages browser peer connection, mouse/touch event scaling, and three-tier latency telemetry.

@@ -1,46 +1,71 @@
 const { execFile, spawn } = require("child_process");
 
-function getAndroidResolution() {
-  return new Promise((resolve, reject) => {
+let cachedResolution = null;
+
+function getAndroidResolution(forceRefresh = false) {
+  if (cachedResolution && !forceRefresh) {
+    return Promise.resolve(cachedResolution);
+  }
+
+  return new Promise((resolve) => {
     execFile("adb", ["shell", "wm", "size"], (error, stdout) => {
       if (error) {
-        reject(error);
-        return;
+        console.warn("Could not query adb wm size, using fallback 540x1200:", error.message);
+        const fallback = { width: 540, height: 1200 };
+        return resolve(fallback);
       }
 
       const match = stdout.match(/Physical size:\s*(\d+)x(\d+)/);
 
       if (!match) {
-        reject(new Error("Could not detect Android resolution"));
-        return;
+        console.warn("Could not parse Android resolution, using fallback 540x1200");
+        const fallback = { width: 540, height: 1200 };
+        return resolve(fallback);
       }
 
-      resolve({
+      cachedResolution = {
         width: Number(match[1]),
         height: Number(match[2]),
+      };
+
+      console.log(`Detected Android physical resolution: ${cachedResolution.width}x${cachedResolution.height}`);
+      resolve(cachedResolution);
+    });
+  });
+}
+
+function runAdbInput(args) {
+  return new Promise((resolve) => {
+    const startTime = Date.now();
+    const proc = spawn("adb", ["shell", "input", ...args]);
+
+    proc.on("error", (error) => {
+      console.error(`ADB input error (${args.join(" ")}):`, error);
+      resolve({
+        success: false,
+        error: error.message,
+        duration: Date.now() - startTime,
+        dispatchedAt: startTime,
+      });
+    });
+
+    proc.on("close", (code) => {
+      resolve({
+        success: code === 0,
+        code,
+        duration: Date.now() - startTime,
+        dispatchedAt: startTime,
       });
     });
   });
 }
 
 function tap(x, y) {
-  const tapProc = spawn("adb", [
-    "shell",
-    "input",
-    "tap",
-    String(x),
-    String(y),
-  ]);
-
-  tapProc.on("error", (error) => {
-    console.error("ADB tap error:", error);
-  });
+  return runAdbInput(["tap", String(x), String(y)]);
 }
 
 function swipe(startX, startY, endX, endY, duration = 300) {
-  const swipeProc = spawn("adb", [
-    "shell",
-    "input",
+  return runAdbInput([
     "swipe",
     String(startX),
     String(startY),
@@ -48,10 +73,6 @@ function swipe(startX, startY, endX, endY, duration = 300) {
     String(endY),
     String(duration),
   ]);
-
-  swipeProc.on("error", (error) => {
-    console.error("ADB swipe error:", error);
-  });
 }
 
 function sendText(text) {
@@ -60,17 +81,7 @@ function sendText(text) {
   const adbText = str.replace(/ /g, "%s");
 
   console.log(`Text received: "${str}"`);
-
-  const inputProc = spawn("adb", [
-    "shell",
-    "input",
-    "text",
-    adbText,
-  ]);
-
-  inputProc.on("error", (error) => {
-    console.error("ADB text error:", error);
-  });
+  return runAdbInput(["text", adbText]);
 }
 
 function sendKey(key) {
@@ -86,18 +97,10 @@ function sendKey(key) {
 
   if (keyCode) {
     console.log(`Key received: ${key}`);
-
-    const keyProc = spawn("adb", [
-      "shell",
-      "input",
-      "keyevent",
-      keyCode,
-    ]);
-
-    keyProc.on("error", (error) => {
-      console.error("ADB key error:", error);
-    });
+    return runAdbInput(["keyevent", keyCode]);
   }
+
+  return Promise.resolve({ success: false, reason: "Unsupported key", duration: 0 });
 }
 
 module.exports = {
@@ -107,3 +110,4 @@ module.exports = {
   sendText,
   sendKey,
 };
+

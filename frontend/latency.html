@@ -1,44 +1,248 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
-  <title>Latency Test</title>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>HealthTick — Visual Latency Benchmark Screen</title>
 
   <style>
+    :root {
+      --bg: #090d16;
+      --card: #151b2b;
+      --accent: #38bdf8;
+      --flash: #ffffff;
+    }
+
     body {
       margin: 0;
-      background: black;
-      color: white;
-      font-family: Arial, sans-serif;
+      background: var(--bg);
+      color: #ffffff;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
       display: flex;
+      flex-direction: column;
       justify-content: center;
       align-items: center;
-      height: 100vh;
+      min-height: 100vh;
+      user-select: none;
+      cursor: pointer;
+      text-align: center;
+      padding: 20px;
+      box-sizing: border-box;
+      transition: background-color 0.05s ease;
+    }
+
+    body.flash {
+      background-color: var(--flash) !important;
+      color: #000000 !important;
+    }
+
+    .container {
+      background: var(--card);
+      border: 2px solid #2a3449;
+      border-radius: 16px;
+      padding: 30px;
+      max-width: 480px;
+      width: 100%;
+      box-shadow: 0 10px 25px rgba(0, 0, 0, 0.5);
+    }
+
+    body.flash .container {
+      background: #ffffff;
+      border-color: #000000;
+      color: #000000;
+    }
+
+    h1 {
+      font-size: 1.1rem;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      color: var(--accent);
+      margin-bottom: 20px;
+    }
+
+    body.flash h1 {
+      color: #000000;
     }
 
     #timestamp {
-      font-size: 32px;
-      text-align: center;
+      font-size: 38px;
+      font-weight: 700;
+      letter-spacing: 0.05em;
+      margin: 10px 0;
+      color: #4ade80;
+    }
+
+    body.flash #timestamp {
+      color: #000000;
+    }
+
+    .time-details {
+      font-size: 16px;
+      color: #94a3b8;
+      margin-bottom: 20px;
+    }
+
+    body.flash .time-details {
+      color: #333333;
+    }
+
+    .counter-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 12px;
+      margin-top: 15px;
+      font-size: 14px;
+    }
+
+    .counter-box {
+      background: #0b101c;
+      border: 1px solid #1e293b;
+      padding: 12px;
+      border-radius: 8px;
+    }
+
+    body.flash .counter-box {
+      background: #f1f5f9;
+      border-color: #cbd5e1;
+      color: #000000;
+    }
+
+    .counter-val {
+      font-size: 24px;
+      font-weight: 700;
+      color: #f8fafc;
+      margin-top: 4px;
+    }
+
+    body.flash .counter-val {
+      color: #000000;
+    }
+
+    .indicator-bar {
+      width: 100%;
+      height: 12px;
+      background: #1e293b;
+      border-radius: 6px;
+      margin-top: 24px;
+      overflow: hidden;
+      position: relative;
+    }
+
+    .indicator-fill {
+      height: 100%;
+      width: 50px;
+      background: var(--accent);
+      position: absolute;
+      left: 0;
+      border-radius: 6px;
+    }
+
+    .instructions {
+      margin-top: 25px;
+      font-size: 12px;
+      color: #64748b;
+      line-height: 1.5;
+    }
+
+    body.flash .instructions {
+      color: #555555;
     }
   </style>
 </head>
 
 <body>
-  <div id="timestamp"></div>
+  <div class="container">
+    <h1>Benchmark Clock</h1>
+    <div id="timestamp">0000000000000</div>
+    <div id="time-human" class="time-details">00:00:00.000</div>
+
+    <div class="counter-grid">
+      <div class="counter-box">
+        <div>Frame Counter</div>
+        <div id="frame-count" class="counter-val">0</div>
+      </div>
+      <div class="counter-box">
+        <div>Tap Reactions</div>
+        <div id="tap-count" class="counter-val">0</div>
+      </div>
+    </div>
+
+    <div class="indicator-bar">
+      <div id="indicator-fill" class="indicator-fill"></div>
+    </div>
+
+    <div class="instructions">
+      Tap/Click anywhere to trigger visual flash.<br>
+      Use high-speed camera or slow-mo video to compare this clock against the browser WebRTC stream.
+    </div>
+  </div>
 
   <script>
-    async function updateTime() {
+    let serverTimeDelta = 0;
+    let tapCount = 0;
+    let frameCount = 0;
+
+    // Sync with backend /time
+    async function syncServerTime() {
       try {
+        const clientBefore = Date.now();
         const response = await fetch("/time");
         const data = await response.json();
-
-        document.getElementById("timestamp").textContent = data.time;
-      } catch (error) {
-        console.error(error);
+        const clientAfter = Date.now();
+        const rtt = clientAfter - clientBefore;
+        // Estimated server time at response receipt
+        serverTimeDelta = (data.time + rtt / 2) - clientAfter;
+      } catch (err) {
+        console.warn("Server time sync failed, using client clock:", err);
       }
     }
 
-    setInterval(updateTime, 100);
-    updateTime();
+    syncServerTime();
+    setInterval(syncServerTime, 5000);
+
+    // High frequency render loop
+    const tsEl = document.getElementById("timestamp");
+    const humanEl = document.getElementById("time-human");
+    const frameEl = document.getElementById("frame-count");
+    const tapEl = document.getElementById("tap-count");
+    const fillEl = document.getElementById("indicator-fill");
+
+    function render(highResTime) {
+      frameCount++;
+      const now = Date.now() + serverTimeDelta;
+      tsEl.textContent = now;
+
+      const d = new Date(now);
+      const hours = String(d.getHours()).padStart(2, "0");
+      const mins = String(d.getMinutes()).padStart(2, "0");
+      const secs = String(d.getSeconds()).padStart(2, "0");
+      const ms = String(d.getMilliseconds()).padStart(3, "0");
+      humanEl.textContent = `${hours}:${mins}:${secs}.${ms}`;
+
+      frameEl.textContent = frameCount;
+
+      // Oscillating indicator bar for visual motion
+      const barWidth = 400;
+      const pos = (Math.sin(highResTime / 200) + 1) * 0.5 * 85;
+      fillEl.style.left = `${pos}%`;
+
+      requestAnimationFrame(render);
+    }
+
+    requestAnimationFrame(render);
+
+    // Flash on tap/click
+    function handleInteraction() {
+      tapCount++;
+      tapEl.textContent = tapCount;
+      document.body.classList.add("flash");
+      setTimeout(() => {
+        document.body.classList.remove("flash");
+      }, 120);
+    }
+
+    window.addEventListener("pointerdown", handleInteraction);
+    window.addEventListener("keydown", handleInteraction);
   </script>
 </body>
 </html>

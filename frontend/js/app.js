@@ -18,6 +18,16 @@ document.addEventListener("DOMContentLoaded", () => {
     sendSignal: sendMessage,
   });
 
+  // Initialize Latency Telemetry Manager
+  if (window.LatencyManager) {
+    window.latencyManager = new window.LatencyManager();
+    window.latencyManager.init({
+      videoElement: video,
+      webrtcClient: webrtc,
+      hudContainerId: "latency-hud-container",
+    });
+  }
+
   window.setupControls(video, sendMessage);
 
   // WebSocket connected
@@ -30,6 +40,13 @@ document.addEventListener("DOMContentLoaded", () => {
   socket.onmessage = async (event) => {
     try {
       const data = JSON.parse(event.data);
+
+      if (data.type === "input_ack") {
+        if (window.latencyManager) {
+          window.latencyManager.recordInputAck(data);
+        }
+        return;
+      }
 
       if (data.type === "latency") {
         const latency = Date.now() - data.serverTime;
@@ -65,3 +82,4 @@ document.addEventListener("DOMContentLoaded", () => {
     }
   };
 });
+

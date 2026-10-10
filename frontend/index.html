@@ -1,25 +1,52 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
-  <title>Android Emulator Stream</title>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>HealthTick — Android Emulator Live Stream</title>
   <link rel="stylesheet" href="css/style.css">
 </head>
 
 <body>
+  <header class="app-header">
+    <div class="header-content">
+      <h1>HealthTick Android Stream</h1>
+      <div class="header-badges">
+        <span id="status" class="badge badge-connecting">Connecting...</span>
+        <span class="badge badge-protocol">WebRTC H.264</span>
+      </div>
+    </div>
+  </header>
 
-  <h2>Android Emulator</h2>
+  <main class="main-container">
+    <section class="device-section">
+      <div class="device-frame">
+        <div class="device-screen-wrapper">
+          <video
+            id="video"
+            autoplay
+            muted
+            playsinline
+            tabindex="0"
+            title="Click or drag to interact with the emulator"
+          ></video>
+        </div>
+      </div>
+      <div class="control-hints">
+        <span><kbd>Click</kbd> Tap</span>
+        <span><kbd>Drag</kbd> Swipe / Scroll</span>
+        <span><kbd>Keys</kbd> Text input</span>
+        <span><kbd>Enter</kbd> / <kbd>Backspace</kbd> Key events</span>
+      </div>
+    </section>
 
-  <p id="status">Connecting...</p>
-
-  <video
-    id="video"
-    autoplay
-    muted
-    playsinline
-    tabindex="0"
-  ></video>
+    <section class="telemetry-section">
+      <div id="latency-hud-container"></div>
+    </section>
+  </main>
 
   <script src="js/webrtc.js"></script>
+  <script src="js/latency.js"></script>
   <script src="js/controls.js"></script>
   <script src="js/app.js"></script>
 </body>

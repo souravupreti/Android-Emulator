@@ -19,3 +19,9 @@ During the initial development of the real-time Android browser streaming system
 
 6. **Video Latency**
    - Video latency is currently high due to default buffer behavior and pipeline stages; latency optimization is planned for a subsequent phase.
+
+7. **Phantom Click Events Cancelling Swipes**
+   - When swiping on the `<video>` element, the browser emitted a synthetic `click` event immediately following `pointerup`. This caused a phantom `tap` at the destination coordinates that cancelled Android's fling momentum and accidentally clicked icons at the release point. Resolved by debouncing `click` events within 450 ms of a swipe.
+
+8. **Android Screenrecord 180s Timeout**
+   - Android's native `screenrecord` binary forcibly exits after 180 seconds. Resolved by implementing an automatic re-launch loop in `backend/src/capture.js` to ensure uninterrupted continuous streaming.
