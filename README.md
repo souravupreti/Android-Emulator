@@ -27,6 +27,10 @@ HealthTick bridges an Android Emulator (or physical device) and a web browser wi
   - Users can start and stop an independent high-quality (1080p equivalent) screen recording stream.
   - Recordings are saved to a dedicated `backend/recordings` directory on the server and are fully downloadable from the browser interface.
   - Operates completely independently from WebRTC to avoid dropping streaming frames or increasing latency.
+- **Two-Way Clipboard Synchronization**:
+  - **Browser to Android**: Injects user text into the active Android input field with automatic character escaping (`%s` for spaces, backslash escapes for shell metacharacters, and `KEYCODE_ENTER` for newlines). Supports quick "Paste from PC & Send".
+  - **Android to Browser**: Retrieves text from the Android system clipboard via IPC parcel parsing (`service call clipboard 4`) and enables one-click copying to the PC clipboard with selectable manual fallback.
+  - **Security & Privacy**: Strict input validation (max 10,000 characters), zero shell injection risk (`execFile`), and zero logging of private clipboard text to server logs.
 - **Three-Tier Latency Measurement & Telemetry Suite**:
   - **Input Dispatch Latency**: Roundtrip instrumentation from browser event trigger, through WebSocket, to ADB process dispatch (`input_ack`).
   - **Video Frame Delivery Delay**: Real-time WebRTC receiver statistics (`jitterBufferDelay`, `totalDecodeTime`, `currentRoundTripTime`, `framesPerSecond`, dropped frames).

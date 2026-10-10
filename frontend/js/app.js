@@ -33,6 +33,13 @@ document.addEventListener("DOMContentLoaded", () => {
     window.RecordingManager.init("recording-container");
   }
 
+  // Initialize Clipboard Manager
+  if (window.ClipboardManager) {
+    window.ClipboardManager.init("clipboard-container", {
+      sendMessage: sendMessage,
+    });
+  }
+
   window.setupControls(video, sendMessage);
 
   // WebSocket connected
@@ -46,12 +53,20 @@ document.addEventListener("DOMContentLoaded", () => {
     try {
       const data = JSON.parse(event.data);
 
-      // Session ID assigned by server — pass to recording manager
+      // Session ID assigned by server — pass to managers
       if (data.type === "session_id") {
         console.log("Session ID:", data.sessionId);
         if (window.RecordingManager) {
           window.RecordingManager.setSessionId(data.sessionId);
         }
+        if (window.ClipboardManager) {
+          window.ClipboardManager.setSessionId(data.sessionId);
+        }
+        return;
+      }
+
+      // Clipboard socket responses
+      if (window.ClipboardManager && window.ClipboardManager.handleSocketMessage(data)) {
         return;
       }
 

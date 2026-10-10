@@ -22,6 +22,7 @@ flowchart TD
         Buffer["Buffer Slicer (Newest Frame Selection)"]
         RTCSource["RTCVideoSource (@roamhq/wrtc)"]
         Recorder["recorder.js (MP4 Session Recording)"]
+        Clipboard["clipboard.js (Two-Way Clipboard)"]
         InputHandler["input.js & android.js (Coordinate Mapper)"]
         WSServer["server.js (WebSocket Signaling & HTTP)"]
 
@@ -30,6 +31,7 @@ flowchart TD
         Buffer --> RTCSource
         WSServer --> InputHandler
         WSServer --> Recorder
+        WSServer --> Clipboard
     end
 
     subgraph Web_Browser["Web Browser (Client)"]
@@ -37,12 +39,14 @@ flowchart TD
         VideoEl["HTML5 <video> Element"]
         Controls["controls.js (Event Listeners & Normalization)"]
         RecordingUI["recording.js (Controls & History)"]
+        ClipboardUI["clipboard.js (Two-Way Clipboard UI)"]
         Telemetry["latency.js (HUD & Frame-Diff Analyzer)"]
         WSClient["app.js (WebSocket Client)"]
 
         PC --> VideoEl
         Controls --> WSClient
         RecordingUI -->|REST API| WSServer
+        ClipboardUI -->|REST API & WS| WSServer
         VideoEl --> Controls
         VideoEl --> Telemetry
     end

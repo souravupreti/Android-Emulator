@@ -14,6 +14,12 @@ const {
   listRecordings,
   getDownloadPath,
 } = require("./recorder");
+const {
+  sendTextToAndroid,
+  getAndroidClipboard,
+  triggerAndroidCopy,
+  triggerAndroidPaste,
+} = require("./clipboard");
 
 const app = express();
 const server = http.createServer(app);
@@ -133,7 +139,67 @@ app.get("/api/recordings/:id/download", (req, res) => {
 });
 
 // ============================================================
-// WebSocket signaling
+// Two-Way Clipboard REST API
+// ============================================================
+
+/**
+ * POST /api/clipboard/send
+ * Body: { sessionId: string, text: string }
+ * Sends text from browser into Android active input field.
+ */
+app.post("/api/clipboard/send", async (req, res) => {
+  const { sessionId, text } = req.body || {};
+
+  if (!sessionId || typeof sessionId !== "string") {
+    return res.status(400).json({ success: false, error: "Valid sessionId is required" });
+  }
+
+  if (typeof text !== "string") {
+    return res.status(400).json({ success: false, error: "Text payload must be a string" });
+  }
+
+  console.log(`[clipboard] Sending ${text.length} chars to Android (session: ${sessionId})`);
+  const result = await sendTextToAndroid(text);
+
+  if (!result.success) {
+    return res.status(400).json(result);
+  }
+
+  return res.json(result);
+});
+
+/**
+ * GET /api/clipboard
+ * Retrieves the current primary clipboard text from Android.
+ */
+app.get("/api/clipboard", async (req, res) => {
+  const result = await getAndroidClipboard();
+  return res.json(result);
+});
+
+/**
+ * POST /api/clipboard/trigger-copy
+ * Dispatches a copy shortcut (Ctrl+C) to Android and then reads the clipboard.
+ */
+app.post("/api/clipboard/trigger-copy", async (req, res) => {
+  await triggerAndroidCopy();
+  // Allow Android a brief moment to update the clipboard service
+  await new Promise((r) => setTimeout(r, 150));
+  const result = await getAndroidClipboard();
+  return res.json(result);
+});
+
+/**
+ * POST /api/clipboard/trigger-paste
+ * Dispatches a paste shortcut (Ctrl+V) to Android.
+ */
+app.post("/api/clipboard/trigger-paste", async (req, res) => {
+  await triggerAndroidPaste();
+  return res.json({ success: true });
+});
+
+// ============================================================
+// WebSocket signaling & interaction
 // ============================================================
 
 wss.on("connection", (socket) => {
@@ -174,11 +240,30 @@ wss.on("connection", (socket) => {
     try {
       const data = JSON.parse(message.toString());
 
-      console.log("WebSocket message:", data.type, data);
-
       // Handle input events (tap, swipe, text, key)
       const handled = await handleInputMessage(data, socket);
       if (handled) {
+        return;
+      }
+
+      // =========================
+      // CLIPBOARD VIA WEBSOCKET
+      // =========================
+      if (data.type === "clipboard_send") {
+        if (typeof data.text === "string") {
+          const res = await sendTextToAndroid(data.text);
+          if (socket.readyState === WebSocket.OPEN) {
+            socket.send(JSON.stringify({ type: "clipboard_ack", ...res }));
+          }
+        }
+        return;
+      }
+
+      if (data.type === "clipboard_read") {
+        const res = await getAndroidClipboard();
+        if (socket.readyState === WebSocket.OPEN) {
+          socket.send(JSON.stringify({ type: "clipboard_data", ...res }));
+        }
         return;
       }
 
@@ -236,8 +321,6 @@ wss.on("connection", (socket) => {
       }
       captureProcesses = null;
     }
-
-    // Note: completed recordings are NOT deleted when sessions end
   });
 });
 
