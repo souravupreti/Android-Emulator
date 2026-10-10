@@ -1,4 +1,4 @@
-const { spawn } = require("child_process");
+const { spawn, execFile } = require("child_process");
 
 function startAndroidCapture(videoSource) {
   let isRunning = true;
@@ -23,6 +23,8 @@ function startAndroidCapture(videoSource) {
 
     console.log("Starting Android screen capture pipeline...");
 
+    // Local references — close handlers MUST use these, not currentAdb/currentFfmpeg,
+    // to avoid killing the next pipeline's processes when this one exits.
     const adb = spawn("adb", [
       "exec-out",
       "screenrecord",
@@ -34,12 +36,6 @@ function startAndroidCapture(videoSource) {
       "h264",
       "-"
     ]);
-
-    currentAdb = adb;
-
-    adb.on("error", (error) => {
-      console.error("ADB process error:", error);
-    });
 
     const ffmpeg = spawn("ffmpeg", [
       "-loglevel",
@@ -55,11 +51,34 @@ function startAndroidCapture(videoSource) {
       "pipe:1",
     ]);
 
+    // Update shared pointers so stop() can clean up the active pipeline
+    currentAdb = adb;
     currentFfmpeg = ffmpeg;
+
+    adb.on("error", (error) => {
+      console.error("ADB process error:", error);
+    });
 
     ffmpeg.on("error", (error) => {
       console.error("FFmpeg process error:", error);
     });
+
+    // Safe error handlers to prevent unhandled EPIPE crashes
+    if (ffmpeg.stdin) {
+      ffmpeg.stdin.on("error", (err) => {
+        if (err.code !== "EPIPE" && err.code !== "EOF") {
+          console.error("FFmpeg stdin error:", err.message);
+        }
+      });
+    }
+
+    if (adb.stdout) {
+      adb.stdout.on("error", (err) => {
+        if (err.code !== "EPIPE") {
+          console.error("ADB stdout error:", err.message);
+        }
+      });
+    }
 
     adb.stdout.pipe(ffmpeg.stdin);
 
@@ -125,25 +144,35 @@ function startAndroidCapture(videoSource) {
       console.error("FFmpeg:", data.toString());
     });
 
+    // Use LOCAL adb/ffmpeg variables here — NOT currentAdb/currentFfmpeg.
+    // This prevents the old pipeline's close handler from killing the NEW pipeline
+    // that was already started 200ms later.
     adb.on("close", (code) => {
       console.log("ADB stopped:", code);
 
-      if (currentFfmpeg && !currentFfmpeg.killed) {
-        try {
-          currentFfmpeg.kill();
-        } catch (e) {}
+      // Kill THIS pipeline's ffmpeg (local ref)
+      if (!ffmpeg.killed) {
+        try { adb.stdout.unpipe(ffmpeg.stdin); } catch (e) {}
+        try { ffmpeg.kill(); } catch (e) {}
       }
 
       // Android screenrecord automatically exits after 180 seconds.
-      // Seamlessly restart if session is still active to maintain continuous streaming.
-      if (isRunning) {
+      // Only restart if this is still the active pipeline.
+      if (isRunning && currentAdb === adb) {
         console.log("Auto-restarting ADB screenrecord for continuous streaming...");
-        restartTimeout = setTimeout(launchPipeline, 100);
+        restartTimeout = setTimeout(launchPipeline, 300);
       }
     });
 
     ffmpeg.on("close", (code) => {
       console.log("FFmpeg stopped:", code);
+
+      // If FFmpeg dies unexpectedly and this is still the active pipeline,
+      // kill THIS pipeline's ADB (local ref) which will trigger the ADB close → restart.
+      if (isRunning && currentFfmpeg === ffmpeg && !adb.killed) {
+        try { adb.stdout.unpipe(ffmpeg.stdin); } catch (e) {}
+        try { adb.kill(); } catch (e) {}
+      }
     });
   }
 
@@ -152,13 +181,23 @@ function startAndroidCapture(videoSource) {
   return {
     stop: () => {
       isRunning = false;
-      if (restartTimeout) clearTimeout(restartTimeout);
+      if (restartTimeout) {
+        clearTimeout(restartTimeout);
+        restartTimeout = null;
+      }
+      if (currentAdb && currentAdb.stdout && currentFfmpeg && currentFfmpeg.stdin) {
+        try { currentAdb.stdout.unpipe(currentFfmpeg.stdin); } catch (e) {}
+      }
       if (currentAdb && !currentAdb.killed) {
         try { currentAdb.kill(); } catch (e) {}
       }
       if (currentFfmpeg && !currentFfmpeg.killed) {
         try { currentFfmpeg.kill(); } catch (e) {}
       }
+      // Clean up device-side screenrecord process
+      try {
+        execFile("adb", ["shell", "pkill", "-9", "screenrecord"], () => {});
+      } catch (e) {}
     },
     get adb() {
       return currentAdb;
