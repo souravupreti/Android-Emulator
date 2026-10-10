@@ -5,9 +5,19 @@ class WebRTCClient {
     this.sendSignal = sendSignal;
     this.peerConnection = new RTCPeerConnection();
 
-    this.peerConnection.addTransceiver("video", {
+    const transceiver = this.peerConnection.addTransceiver("video", {
       direction: "recvonly",
     });
+
+    // Request immediate playout without buffering
+    if (transceiver && transceiver.receiver) {
+      if ("playoutDelayHint" in transceiver.receiver) {
+        transceiver.receiver.playoutDelayHint = 0;
+      }
+      if ("jitterBufferTarget" in transceiver.receiver) {
+        transceiver.receiver.jitterBufferTarget = 0;
+      }
+    }
 
     this.peerConnection.onconnectionstatechange = () => {
       console.log("Connection state:", this.peerConnection.connectionState);
@@ -24,9 +34,17 @@ class WebRTCClient {
         this.status.textContent = "Live";
       }
 
-      const stream =
-        event.streams[0] || new MediaStream([event.track]);
+      // Enforce zero playout delay on incoming receiver
+      if (event.receiver) {
+        if ("playoutDelayHint" in event.receiver) {
+          event.receiver.playoutDelayHint = 0;
+        }
+        if ("jitterBufferTarget" in event.receiver) {
+          event.receiver.jitterBufferTarget = 0;
+        }
+      }
 
+      const stream = event.streams[0] || new MediaStream([event.track]);
       this.video.srcObject = stream;
 
       try {

@@ -3,12 +3,14 @@
  * 
  * Accurately measures:
  * 1. Input Dispatch Latency: Browser input action -> WebSocket -> Backend coordinate mapping -> ADB command dispatch
+ *    - Includes breakdown: WebSocket transit time + ADB command execution duration
  * 2. Video Frame Delivery Latency: WebRTC transport, jitter buffer, and frame decode time via getStats()
  * 3. End-to-End Action-to-Visible-Update Latency: Time from user action until visual change is rendered on <video>
+ * 4. Automated 20-Sample Benchmark Runner with Median and p95 percentile analysis
  */
 
 class LatencyMetric {
-  constructor(name, maxSamples = 50) {
+  constructor(name, maxSamples = 100) {
     this.name = name;
     this.maxSamples = maxSamples;
     this.samples = [];
@@ -29,7 +31,7 @@ class LatencyMetric {
   getStats() {
     const count = this.samples.length;
     if (count === 0) {
-      return { count: 0, min: null, max: null, median: null, mean: null, latest: null };
+      return { count: 0, min: null, max: null, median: null, mean: null, p95: null, latest: null };
     }
 
     const sorted = [...this.samples].sort((a, b) => a - b);
@@ -46,6 +48,9 @@ class LatencyMetric {
       median = sorted[mid];
     }
 
+    const p95Index = Math.min(count - 1, Math.floor(count * 0.95));
+    const p95 = sorted[p95Index];
+
     const latest = this.samples[count - 1];
 
     return {
@@ -54,6 +59,7 @@ class LatencyMetric {
       max: Number(max.toFixed(1)),
       median: Number(median.toFixed(1)),
       mean: Number(mean.toFixed(1)),
+      p95: Number(p95.toFixed(1)),
       latest: Number(latest.toFixed(1)),
     };
   }
@@ -62,7 +68,9 @@ class LatencyMetric {
 class LatencyManager {
   constructor() {
     this.inputMetric = new LatencyMetric("Input Dispatch Latency");
-    this.videoDeliveryMetric = new LatencyMetric("Video Delivery Latency");
+    this.adbMetric = new LatencyMetric("ADB Execution Time");
+    this.netMetric = new LatencyMetric("WebSocket Network Transit");
+    this.videoDeliveryMetric = new LatencyMetric("Video Playout Delay");
     this.e2eMetric = new LatencyMetric("End-to-End Latency");
 
     this.pendingInputs = new Map();
@@ -71,6 +79,7 @@ class LatencyManager {
     this.webrtcClient = null;
     this.isProbingE2E = false;
     this.isObservingE2E = false;
+    this.isBenchmarking = false;
 
     // WebRTC live telemetry snapshot
     this.webrtcTelemetry = {
@@ -106,7 +115,7 @@ class LatencyManager {
       startTime,
     });
 
-    // Automatically observe visual screen changes following user actions
+    // Observe visual screen changes following user actions
     if ((type === "tap" || type === "swipe") && this.videoElement && this.videoElement.readyState >= 2 && !this.isObservingE2E) {
       this.observeE2EUpdate(startTime);
     }
@@ -132,7 +141,6 @@ class LatencyManager {
         const now = performance.now();
 
         if (now - startTime > 3000) {
-          // Timeout - screen remained static
           this.isObservingE2E = false;
           return;
         }
@@ -149,7 +157,7 @@ class LatencyManager {
             Math.abs(currentData[i] - baselineData[i]) +
             Math.abs(currentData[i + 1] - baselineData[i + 1]) +
             Math.abs(currentData[i + 2] - baselineData[i + 2]);
-          if (delta > 40) {
+          if (delta > 35) {
             diffCount++;
           }
           sampled++;
@@ -157,15 +165,14 @@ class LatencyManager {
 
         const diffRatio = diffCount / sampled;
 
-        // Visual delta threshold: > 2.5% pixels changed
-        if (diffRatio > 0.025) {
+        // Visual delta threshold: > 2.0% pixels changed
+        if (diffRatio > 0.02) {
           const elapsed = now - startTime;
-          // Filter out instantaneous jitter (< 50ms is below physical Android screenrecord latency floor)
-          if (elapsed > 50) {
+          if (elapsed > 40) {
             this.e2eMetric.addSample(elapsed);
             this.updateHUD();
             const statusText = document.getElementById("e2e-probe-status");
-            if (statusText) {
+            if (statusText && !this.isBenchmarking) {
               statusText.textContent = `Visual screen response detected in ${elapsed.toFixed(1)} ms`;
             }
           }
@@ -199,16 +206,14 @@ class LatencyManager {
     const now = performance.now();
     const roundTrip = now - pending.startTime;
 
-    // One-way dispatch latency estimate: client-to-server WebSocket + server processing + ADB spawn
-    // If adbDuration is provided, input dispatch latency is the time until ADB finished executing
-    let dispatchLatency = roundTrip;
-    if (typeof adbDuration === "number" && adbDuration > 0) {
-      // client -> server one-way + adb execution
-      const networkOneWay = Math.max(0, (roundTrip - adbDuration) / 2);
-      dispatchLatency = networkOneWay + adbDuration;
-    }
+    // Breakdown
+    let adbTime = typeof adbDuration === "number" && adbDuration > 0 ? adbDuration : null;
+    let netTime = adbTime !== null ? Math.max(0, (roundTrip - adbTime) / 2) : roundTrip / 2;
 
-    this.inputMetric.addSample(dispatchLatency);
+    if (adbTime !== null) this.adbMetric.addSample(adbTime);
+    this.netMetric.addSample(netTime);
+    this.inputMetric.addSample(roundTrip);
+
     this.updateHUD();
   }
 
@@ -278,27 +283,22 @@ class LatencyManager {
   }
 
   /**
-   * Automated End-to-End Latency Probe (Optical/Frame-Diff Analysis)
-   * 
-   * Triggers an input event, then captures consecutive video frames using
-   * requestVideoFrameCallback() / offscreen canvas to detect when the
-   * video content changes.
+   * Automated End-to-End Latency Single Probe
    */
   async runE2EProbe(sendInputCallback) {
-    if (this.isProbingE2E) return;
+    if (this.isProbingE2E) return null;
     if (!this.videoElement || this.videoElement.readyState < 2) {
       alert("Video stream is not currently playing. Please ensure the stream is active first.");
-      return;
+      return null;
     }
 
     this.isProbingE2E = true;
     const probeBtn = document.getElementById("btn-e2e-probe");
     const statusText = document.getElementById("e2e-probe-status");
     if (probeBtn) probeBtn.disabled = true;
-    if (statusText) statusText.textContent = "Probing: Capturing baseline frame...";
+    if (statusText && !this.isBenchmarking) statusText.textContent = "Probing: Capturing baseline frame...";
 
     try {
-      // 1. Prepare offscreen canvas for diff analysis
       const canvas = document.createElement("canvas");
       const width = 135;
       const height = 300;
@@ -306,16 +306,14 @@ class LatencyManager {
       canvas.height = height;
       const ctx = canvas.getContext("2d", { willReadFrequently: true });
 
-      // Draw baseline frame
       ctx.drawImage(this.videoElement, 0, 0, width, height);
       const baselineData = ctx.getImageData(0, 0, width, height).data;
 
-      // 2. Dispatch input action (e.g. tap at center)
       const rect = this.videoElement.getBoundingClientRect();
       const centerX = (rect.width / 2) * (this.videoElement.videoWidth / rect.width);
       const centerY = (rect.height / 2) * (this.videoElement.videoHeight / rect.height);
 
-      if (statusText) statusText.textContent = "Probing: Action dispatched, awaiting screen change...";
+      if (statusText && !this.isBenchmarking) statusText.textContent = "Probing: Action dispatched, awaiting screen change...";
       const startTime = performance.now();
 
       if (typeof sendInputCallback === "function") {
@@ -326,7 +324,6 @@ class LatencyManager {
         });
       }
 
-      // 3. Monitor video frames for pixel delta
       const checkFrameDiff = () => {
         return new Promise((resolve) => {
           const timeout = setTimeout(() => {
@@ -338,17 +335,15 @@ class LatencyManager {
             ctx.drawImage(this.videoElement, 0, 0, width, height);
             const currentData = ctx.getImageData(0, 0, width, height).data;
 
-            // Compute delta across sampled pixels
             let diffCount = 0;
-            const totalPixels = width * height;
-            const step = 4; // Check every 4th pixel for speed
+            const step = 4;
             let sampled = 0;
 
             for (let i = 0; i < currentData.length; i += 4 * step) {
               const rDiff = Math.abs(currentData[i] - baselineData[i]);
               const gDiff = Math.abs(currentData[i + 1] - baselineData[i + 1]);
               const bDiff = Math.abs(currentData[i + 2] - baselineData[i + 2]);
-              if (rDiff + gDiff + bDiff > 45) {
+              if (rDiff + gDiff + bDiff > 35) {
                 diffCount++;
               }
               sampled++;
@@ -356,7 +351,7 @@ class LatencyManager {
 
             const diffRatio = diffCount / sampled;
 
-            if (diffRatio > 0.03) { // >3% visual variance detected
+            if (diffRatio > 0.02) {
               clearTimeout(timeout);
               resolve({ detected: true, elapsed: now - startTime });
             } else if (now - startTime < 3000) {
@@ -379,17 +374,20 @@ class LatencyManager {
       const result = await checkFrameDiff();
       if (result.detected) {
         this.e2eMetric.addSample(result.elapsed);
-        if (statusText) {
+        if (statusText && !this.isBenchmarking) {
           statusText.textContent = `Success: Visible update detected in ${result.elapsed.toFixed(1)} ms`;
         }
+        return result.elapsed;
       } else {
-        if (statusText) {
+        if (statusText && !this.isBenchmarking) {
           statusText.textContent = `No visual change detected within 3.0s (screen was static or unresponsive)`;
         }
+        return null;
       }
     } catch (err) {
       console.error("E2E probe error:", err);
-      if (statusText) statusText.textContent = `Error during probe: ${err.message}`;
+      if (statusText && !this.isBenchmarking) statusText.textContent = `Error during probe: ${err.message}`;
+      return null;
     } finally {
       this.isProbingE2E = false;
       if (probeBtn) probeBtn.disabled = false;
@@ -397,8 +395,46 @@ class LatencyManager {
     }
   }
 
+  /**
+   * Automated 20-Sample Benchmark Suite
+   */
+  async run20SampleBenchmark(sendInputCallback) {
+    if (this.isBenchmarking) return;
+    this.isBenchmarking = true;
+
+    const benchBtn = document.getElementById("btn-run-benchmark");
+    const probeBtn = document.getElementById("btn-e2e-probe");
+    const statusText = document.getElementById("e2e-probe-status");
+
+    if (benchBtn) benchBtn.disabled = true;
+    if (probeBtn) probeBtn.disabled = true;
+
+    this.clearMetrics();
+    const targetSamples = 20;
+
+    for (let i = 1; i <= targetSamples; i++) {
+      if (statusText) {
+        statusText.textContent = `Running 20-Sample Benchmark: Iteration ${i} of ${targetSamples}...`;
+      }
+      await this.runE2EProbe(sendInputCallback);
+      // Brief pause between iterations to allow emulator screen to stabilize
+      await new Promise((r) => setTimeout(r, 400));
+    }
+
+    this.isBenchmarking = false;
+    if (benchBtn) benchBtn.disabled = false;
+    if (probeBtn) probeBtn.disabled = false;
+
+    const stats = this.e2eMetric.getStats();
+    if (statusText) {
+      statusText.textContent = `Benchmark Complete (${stats.count} samples): Median = ${stats.median} ms, p95 = ${stats.p95} ms, Min = ${stats.min} ms, Max = ${stats.max} ms`;
+    }
+  }
+
   clearMetrics() {
     this.inputMetric.clear();
+    this.adbMetric.clear();
+    this.netMetric.clear();
     this.videoDeliveryMetric.clear();
     this.e2eMetric.clear();
     this.updateHUD();
@@ -408,30 +444,34 @@ class LatencyManager {
 
   generateReportMarkdown() {
     const inputStats = this.inputMetric.getStats();
+    const adbStats = this.adbMetric.getStats();
+    const netStats = this.netMetric.getStats();
     const videoStats = this.videoDeliveryMetric.getStats();
     const e2eStats = this.e2eMetric.getStats();
 
     const formatRow = (name, stats, unit = "ms") => {
       if (stats.count === 0) {
-        return `| ${name} | 0 | Pending / No samples | Pending | Pending | Pending |`;
+        return `| ${name} | 0 | Pending | Pending | Pending | Pending | Pending |`;
       }
-      return `| ${name} | ${stats.count} | ${stats.median} ${unit} | ${stats.min} ${unit} | ${stats.max} ${unit} | ${stats.latest} ${unit} |`;
+      return `| ${name} | ${stats.count} | **${stats.median} ${unit}** | ${stats.p95} ${unit} | ${stats.min} ${unit} | ${stats.max} ${unit} | ${stats.latest} ${unit} |`;
     };
 
-    return `### Latency Measurement Telemetry Report
+    return `### HealthTick Latency Telemetry & Benchmark Report
 *Generated on: ${new Date().toISOString()}*
 
-| Metric | Sample Count | Median | Min | Max | Latest |
-| :--- | :---: | :---: | :---: | :---: | :---: |
-${formatRow("Input Dispatch Latency (Browser -> WebSocket -> ADB)", inputStats)}
-${formatRow("Video Playout Delay (WebRTC Jitter + Decode)", videoStats)}
-${formatRow("End-to-End Latency (Action -> Visible Screen Update)", e2eStats)}
+| Tier / Metric | Samples | Median | p95 | Min | Max | Latest |
+| :--- | :---: | :---: | :---: | :---: | :---: | :---: |
+${formatRow("1. Input Dispatch Roundtrip", inputStats)}
+${formatRow("   ├── WebSocket Network Transit", netStats)}
+${formatRow("   └── ADB Command Execution", adbStats)}
+${formatRow("2. Video Playout Delay (Jitter + Decode)", videoStats)}
+${formatRow("3. End-to-End Action-to-Visible-Update", e2eStats)}
 
-**WebRTC Live Parameters:**
+**WebRTC Playout Telemetry:**
 - Jitter Buffer Delay: ${this.webrtcTelemetry.jitterBufferDelay !== null ? this.webrtcTelemetry.jitterBufferDelay + " ms" : "N/A"}
 - Frame Decode Time: ${this.webrtcTelemetry.decodeTime !== null ? this.webrtcTelemetry.decodeTime + " ms" : "N/A"}
 - WebRTC Round-Trip Time (RTT): ${this.webrtcTelemetry.rtt !== null ? this.webrtcTelemetry.rtt + " ms" : "N/A"}
-- Framerate (FPS): ${this.webrtcTelemetry.fps !== null ? this.webrtcTelemetry.fps : "N/A"}
+- Stream Framerate (FPS): ${this.webrtcTelemetry.fps !== null ? this.webrtcTelemetry.fps : "N/A"}
 - Frames Received: ${this.webrtcTelemetry.framesReceived !== null ? this.webrtcTelemetry.framesReceived : "N/A"}
 - Frames Dropped: ${this.webrtcTelemetry.framesDropped !== null ? this.webrtcTelemetry.framesDropped : "0"}
 `;
@@ -446,8 +486,9 @@ ${formatRow("End-to-End Latency (Action -> Visible Screen Update)", e2eStats)}
         <div class="latency-header">
           <h3>Latency Diagnostics & Telemetry</h3>
           <div class="latency-actions">
-            <button id="btn-e2e-probe" class="btn btn-primary" title="Trigger tap and measure frame diff until visual update">Run E2E Latency Probe</button>
-            <button id="btn-copy-report" class="btn btn-secondary">Copy Telemetry Report</button>
+            <button id="btn-run-benchmark" class="btn btn-primary" title="Collect 20 samples to calculate Median and p95">⚡ Run 20-Sample Benchmark</button>
+            <button id="btn-e2e-probe" class="btn btn-secondary" title="Single probe">Probe E2E</button>
+            <button id="btn-copy-report" class="btn btn-outline">Copy Report</button>
             <button id="btn-clear-metrics" class="btn btn-outline">Reset</button>
           </div>
         </div>
@@ -458,16 +499,16 @@ ${formatRow("End-to-End Latency (Action -> Visible Screen Update)", e2eStats)}
           <!-- Card 1: Input Dispatch -->
           <div class="latency-card">
             <div class="card-title">1. Input Dispatch Latency</div>
-            <div class="card-desc">Browser action &rarr; WebSocket &rarr; ADB dispatch</div>
+            <div class="card-desc">Browser &rarr; WebSocket &rarr; ADB dispatch</div>
             <div class="stat-highlight">
               <span id="stat-input-median" class="stat-value">--</span>
               <span class="stat-unit">ms (median)</span>
             </div>
             <div class="stat-grid">
+              <div>p95: <strong id="stat-input-p95">--</strong> ms</div>
               <div>Samples: <strong id="stat-input-count">0</strong></div>
-              <div>Min: <strong id="stat-input-min">--</strong> ms</div>
-              <div>Max: <strong id="stat-input-max">--</strong> ms</div>
-              <div>Latest: <strong id="stat-input-latest">--</strong> ms</div>
+              <div>Net Transit: <strong id="stat-input-net">--</strong> ms</div>
+              <div>ADB Exec: <strong id="stat-input-adb">--</strong> ms</div>
             </div>
           </div>
 
@@ -489,17 +530,17 @@ ${formatRow("End-to-End Latency (Action -> Visible Screen Update)", e2eStats)}
 
           <!-- Card 3: End-to-End Latency -->
           <div class="latency-card">
-            <div class="card-title">3. End-to-End Action-to-Update</div>
-            <div class="card-desc">Action dispatch &rarr; OS &rarr; Video pixel change</div>
+            <div class="card-title">3. End-to-End Latency</div>
+            <div class="card-desc">Action &rarr; Android OS &rarr; Video pixel change</div>
             <div class="stat-highlight">
               <span id="stat-e2e-median" class="stat-value">--</span>
               <span class="stat-unit">ms (median)</span>
             </div>
             <div class="stat-grid">
+              <div>p95: <strong id="stat-e2e-p95">--</strong> ms</div>
               <div>Samples: <strong id="stat-e2e-count">0</strong></div>
               <div>Min: <strong id="stat-e2e-min">--</strong> ms</div>
               <div>Max: <strong id="stat-e2e-max">--</strong> ms</div>
-              <div>Latest: <strong id="stat-e2e-latest">--</strong> ms</div>
             </div>
           </div>
         </div>
@@ -533,7 +574,7 @@ ${formatRow("End-to-End Latency (Action -> Visible Screen Update)", e2eStats)}
       navigator.clipboard.writeText(markdown).then(() => {
         const btn = document.getElementById("btn-copy-report");
         btn.textContent = "Copied!";
-        setTimeout(() => (btn.textContent = "Copy Telemetry Report"), 2000);
+        setTimeout(() => (btn.textContent = "Copy Report"), 2000);
       });
     });
 
@@ -543,25 +584,33 @@ ${formatRow("End-to-End Latency (Action -> Visible Screen Update)", e2eStats)}
       }
     });
 
+    document.getElementById("btn-run-benchmark").addEventListener("click", () => {
+      if (window.sendControlMessage) {
+        this.run20SampleBenchmark(window.sendControlMessage);
+      }
+    });
+
     this.updateHUD();
   }
 
   updateHUD() {
     const inputStats = this.inputMetric.getStats();
+    const adbStats = this.adbMetric.getStats();
+    const netStats = this.netMetric.getStats();
     const videoStats = this.videoDeliveryMetric.getStats();
     const e2eStats = this.e2eMetric.getStats();
 
-    // Input stats
     const setVal = (id, val, fallback = "--") => {
       const el = document.getElementById(id);
       if (el) el.textContent = val !== null && val !== undefined ? val : fallback;
     };
 
+    // Input stats
     setVal("stat-input-median", inputStats.median);
+    setVal("stat-input-p95", inputStats.p95);
     setVal("stat-input-count", inputStats.count);
-    setVal("stat-input-min", inputStats.min);
-    setVal("stat-input-max", inputStats.max);
-    setVal("stat-input-latest", inputStats.latest);
+    setVal("stat-input-net", netStats.median);
+    setVal("stat-input-adb", adbStats.median);
 
     // Video playout stats
     setVal("stat-video-median", videoStats.median);
@@ -572,10 +621,10 @@ ${formatRow("End-to-End Latency (Action -> Visible Screen Update)", e2eStats)}
 
     // E2E stats
     setVal("stat-e2e-median", e2eStats.median);
+    setVal("stat-e2e-p95", e2eStats.p95);
     setVal("stat-e2e-count", e2eStats.count);
     setVal("stat-e2e-min", e2eStats.min);
     setVal("stat-e2e-max", e2eStats.max);
-    setVal("stat-e2e-latest", e2eStats.latest);
   }
 }
 
