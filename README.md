@@ -294,7 +294,6 @@ Once the browser connects to `http://localhost:3000`:
 │   ├── WHAT_WENT_WRONG.md    # Historical challenges and debugging log
 │   └── WITH_MORE_TIME.md     # Production roadmap and future architectural extensions
 ├── ARCHITECTURE.md           # System architecture reference
-├── DEMO_CHECKLIST.md         # Video demonstration protocol (3–5 min walkthrough)
 ├── PROCESS_LOG.md            # Chronological development audit trail
 ├── SUBMISSION_NOTES.md       # Reflections, AI evaluation, and debugging analysis
 └── README.md                 # Primary project documentation
@@ -302,8 +301,7 @@ Once the browser connects to `http://localhost:3000`:
 
 ---
 
-## 12. Demo & Historical Records
+## 12. Documentation & Historical Records
 
-- For the step-by-step video recording guide, see [DEMO_CHECKLIST.md](DEMO_CHECKLIST.md).
 - For in-depth architectural decisions, data flow diagrams, and rejected alternatives, see [ARCHITECTURE.md](ARCHITECTURE.md).
 - For candid debugging notes, AI assistance critique, and developer reflections, see [SUBMISSION_NOTES.md](SUBMISSION_NOTES.md).
