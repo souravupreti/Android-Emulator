@@ -348,3 +348,307 @@ video:focus {
   color: var(--accent-blue);
   font-size: 0.82rem;
 }
+
+/* ===================================================
+   Recording Panel
+   =================================================== */
+
+#recording-container {
+  width: 100%;
+  max-width: 360px;
+}
+
+.recording-panel {
+  background: var(--bg-card);
+  border: 1px solid var(--border-color);
+  border-radius: 12px;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  transition: border-color 0.3s ease, box-shadow 0.3s ease;
+}
+
+.recording-panel.recording-active {
+  border-color: rgba(248, 113, 113, 0.6);
+  box-shadow: 0 0 0 1px rgba(248, 113, 113, 0.15), 0 0 16px rgba(248, 113, 113, 0.08);
+}
+
+.recording-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.recording-title {
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: var(--text-primary);
+  letter-spacing: -0.01em;
+}
+
+.rec-timer {
+  font-family: var(--font-mono);
+  font-size: 1rem;
+  font-weight: 700;
+  color: var(--accent-red);
+  min-width: 52px;
+  text-align: right;
+  letter-spacing: 0.04em;
+}
+
+.recording-controls {
+  display: flex;
+  gap: 8px;
+}
+
+/* Start recording button */
+.btn-record {
+  flex: 1;
+  background: rgba(74, 222, 128, 0.12);
+  color: var(--accent-green);
+  border: 1px solid rgba(74, 222, 128, 0.3);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  font-size: 0.82rem;
+  font-weight: 600;
+  padding: 8px 12px;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s, opacity 0.15s;
+}
+
+.btn-record:hover:not(:disabled) {
+  background: rgba(74, 222, 128, 0.2);
+  border-color: rgba(74, 222, 128, 0.5);
+}
+
+.btn-record:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+/* Pulsing dot on start button */
+.rec-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--accent-green);
+  flex-shrink: 0;
+}
+
+.recording-active .rec-dot {
+  background: var(--accent-red);
+  animation: rec-pulse 1.2s ease-in-out infinite;
+}
+
+@keyframes rec-pulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50%       { opacity: 0.4; transform: scale(0.7); }
+}
+
+/* Stop recording button */
+.btn-stop-record {
+  background: rgba(248, 113, 113, 0.12);
+  color: var(--accent-red);
+  border: 1px solid rgba(248, 113, 113, 0.3);
+  font-size: 0.82rem;
+  font-weight: 600;
+  padding: 8px 14px;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s, opacity 0.15s;
+}
+
+.btn-stop-record:hover:not(:disabled) {
+  background: rgba(248, 113, 113, 0.22);
+  border-color: rgba(248, 113, 113, 0.5);
+}
+
+.btn-stop-record:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+/* Status pill */
+.rec-status-text {
+  font-size: 0.78rem;
+  font-family: var(--font-mono);
+  padding: 5px 10px;
+  border-radius: 6px;
+  border: 1px solid transparent;
+}
+
+.rec-status-info {
+  color: var(--text-secondary);
+  background: transparent;
+  border-color: transparent;
+}
+
+.rec-status-recording {
+  color: var(--accent-red);
+  background: rgba(248, 113, 113, 0.08);
+  border-color: rgba(248, 113, 113, 0.25);
+  animation: rec-text-blink 2s ease-in-out infinite;
+}
+
+@keyframes rec-text-blink {
+  0%, 100% { opacity: 1; }
+  50%       { opacity: 0.65; }
+}
+
+.rec-status-ok {
+  color: var(--accent-green);
+  background: rgba(74, 222, 128, 0.08);
+  border-color: rgba(74, 222, 128, 0.25);
+}
+
+.rec-status-warn {
+  color: var(--accent-amber);
+  background: rgba(251, 191, 36, 0.08);
+  border-color: rgba(251, 191, 36, 0.25);
+}
+
+.rec-status-error {
+  color: var(--accent-red);
+  background: rgba(248, 113, 113, 0.08);
+  border-color: rgba(248, 113, 113, 0.25);
+}
+
+/* Recordings history */
+.rec-history {
+  border-top: 1px solid var(--border-color);
+  padding-top: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.rec-history-label {
+  font-size: 0.78rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-secondary);
+}
+
+.rec-history-list {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 220px;
+  overflow-y: auto;
+  padding-right: 2px;
+}
+
+.rec-history-list::-webkit-scrollbar {
+  width: 4px;
+}
+
+.rec-history-list::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.rec-history-list::-webkit-scrollbar-thumb {
+  background: var(--border-color);
+  border-radius: 2px;
+}
+
+.rec-empty {
+  font-size: 0.78rem;
+  color: var(--text-secondary);
+  font-style: italic;
+  padding: 4px 0;
+}
+
+.rec-item {
+  background: var(--bg-primary);
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  transition: border-color 0.15s;
+}
+
+.rec-item:hover {
+  border-color: #475569;
+}
+
+.rec-item-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+}
+
+.rec-item-id {
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  color: var(--text-secondary);
+}
+
+.rec-item-badge {
+  font-size: 0.7rem;
+  font-weight: 700;
+  padding: 2px 7px;
+  border-radius: 9999px;
+  letter-spacing: 0.04em;
+}
+
+.rec-status-active {
+  background: rgba(248, 113, 113, 0.15);
+  color: var(--accent-red);
+  border: 1px solid rgba(248, 113, 113, 0.3);
+}
+
+.rec-status-done {
+  background: rgba(74, 222, 128, 0.1);
+  color: var(--accent-green);
+  border: 1px solid rgba(74, 222, 128, 0.25);
+}
+
+.rec-status-error {
+  background: rgba(248, 113, 113, 0.1);
+  color: var(--accent-red);
+  border: 1px solid rgba(248, 113, 113, 0.25);
+}
+
+.rec-item-meta {
+  font-size: 0.72rem;
+  color: var(--text-secondary);
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.rec-item-error {
+  font-size: 0.72rem;
+  color: var(--accent-red);
+  font-family: var(--font-mono);
+  word-break: break-all;
+}
+
+.btn-xs {
+  padding: 4px 8px;
+  font-size: 0.72rem;
+  border-radius: 4px;
+  text-decoration: none;
+  display: inline-block;
+  margin-top: 2px;
+}
+
+.rec-download-btn {
+  color: var(--accent-blue);
+  border-color: rgba(56, 189, 248, 0.3);
+  background: rgba(56, 189, 248, 0.08);
+}
+
+.rec-download-btn:hover {
+  background: rgba(56, 189, 248, 0.16);
+  border-color: rgba(56, 189, 248, 0.5);
+  color: var(--accent-blue);
+}

@@ -21,6 +21,7 @@ flowchart TD
         FFmpeg["FFmpeg Process (H.264 -> Raw I420 yuv420p)"]
         Buffer["Buffer Slicer (Newest Frame Selection)"]
         RTCSource["RTCVideoSource (@roamhq/wrtc)"]
+        Recorder["recorder.js (MP4 Session Recording)"]
         InputHandler["input.js & android.js (Coordinate Mapper)"]
         WSServer["server.js (WebSocket Signaling & HTTP)"]
 
@@ -28,17 +29,20 @@ flowchart TD
         FFmpeg --> Buffer
         Buffer --> RTCSource
         WSServer --> InputHandler
+        WSServer --> Recorder
     end
 
     subgraph Web_Browser["Web Browser (Client)"]
         PC["RTCPeerConnection (recvonly Transceiver)"]
         VideoEl["HTML5 <video> Element"]
         Controls["controls.js (Event Listeners & Normalization)"]
+        RecordingUI["recording.js (Controls & History)"]
         Telemetry["latency.js (HUD & Frame-Diff Analyzer)"]
         WSClient["app.js (WebSocket Client)"]
 
         PC --> VideoEl
         Controls --> WSClient
+        RecordingUI -->|REST API| WSServer
         VideoEl --> Controls
         VideoEl --> Telemetry
     end

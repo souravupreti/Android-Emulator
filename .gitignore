@@ -4,3 +4,4 @@ node_modules/
 screen.png
 test.png
 screen.h264
+backend/recordings/*.mp4

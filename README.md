@@ -23,6 +23,10 @@ HealthTick bridges an Android Emulator (or physical device) and a web browser wi
   - Automatically queries physical device screen geometry via `adb shell wm size`.
   - Scales CSS display coordinates `(clientX, clientY)` -> Video canvas coordinates `(videoX, videoY)` -> Physical Android screen coordinates `(androidX, androidY)` across any viewport size or window resize.
   - Caches resolution for sub-millisecond mapping lookups with resilient fallback.
+- **Session Recording (MP4)**:
+  - Users can start and stop an independent high-quality (1080p equivalent) screen recording stream.
+  - Recordings are saved to a dedicated `backend/recordings` directory on the server and are fully downloadable from the browser interface.
+  - Operates completely independently from WebRTC to avoid dropping streaming frames or increasing latency.
 - **Three-Tier Latency Measurement & Telemetry Suite**:
   - **Input Dispatch Latency**: Roundtrip instrumentation from browser event trigger, through WebSocket, to ADB process dispatch (`input_ack`).
   - **Video Frame Delivery Delay**: Real-time WebRTC receiver statistics (`jitterBufferDelay`, `totalDecodeTime`, `currentRoundTripTime`, `framesPerSecond`, dropped frames).

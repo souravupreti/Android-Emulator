@@ -47,6 +47,7 @@ This checklist provides a structured, continuous 3–5 minute demonstration reco
 | **Input Dispatch Telemetry (`input_ack`)** | `backend/src/input.js`, `frontend/js/latency.js` | Live samples recorded on each input action | **Verified & Working** |
 | **WebRTC Receiver Telemetry (`getStats`)** | `frontend/js/latency.js` | Displays live jitter delay, decode time, FPS | **Verified & Working** |
 | **Automated E2E Frame-Diff Probe** | `frontend/js/latency.js` | Measures millisecond delta to first screen update | **Verified & Working** |
+| **MP4 Session Recording** | `backend/src/recorder.js`, `frontend/js/recording.js` | Start/stop saves MP4 file, download link in UI | **Verified & Working** |
 | **Subprocess Cleanup on Disconnect** | `backend/src/server.js` | ADB and FFmpeg processes terminate on socket close | **Verified & Working** |
 | **Audio Capture** | N/A | Not supported by ADB `screenrecord` | *Documented Limitation* |
 | **Multi-Device Concurrent Routing** | N/A | Single active session architecture | *Documented Roadmap* |

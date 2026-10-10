@@ -28,6 +28,11 @@ document.addEventListener("DOMContentLoaded", () => {
     });
   }
 
+  // Initialize Recording Manager
+  if (window.RecordingManager) {
+    window.RecordingManager.init("recording-container");
+  }
+
   window.setupControls(video, sendMessage);
 
   // WebSocket connected
@@ -40,6 +45,15 @@ document.addEventListener("DOMContentLoaded", () => {
   socket.onmessage = async (event) => {
     try {
       const data = JSON.parse(event.data);
+
+      // Session ID assigned by server — pass to recording manager
+      if (data.type === "session_id") {
+        console.log("Session ID:", data.sessionId);
+        if (window.RecordingManager) {
+          window.RecordingManager.setSessionId(data.sessionId);
+        }
+        return;
+      }
 
       if (data.type === "input_ack") {
         if (window.latencyManager) {
@@ -82,4 +96,3 @@ document.addEventListener("DOMContentLoaded", () => {
     }
   };
 });
-

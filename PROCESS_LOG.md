@@ -22,3 +22,14 @@ This file tracks project history and development decisions. It is append-only.
     - `js/app.js`: Application lifecycle and signaling client.
   - Added documentation (`docs/ARCHITECTURE.md`, `docs/WHAT_WENT_WRONG.md`, `docs/WITH_MORE_TIME.md`, `README.md`, `.gitignore`).
 - **Outcome**: Codebase is clean, modular, and maintainable, ready for testing and subsequent phases.
+
+## 2026-10-10: Session Recording Implementation
+
+- **Context**: Need to allow users to record the Android session to MP4 without interrupting the live WebRTC stream.
+- **Action**:
+  - Created `backend/src/recorder.js` to manage an independent `adb exec-out screenrecord | ffmpeg` pipeline.
+  - Implemented REST endpoints in `server.js` (`/api/recordings/start`, `/stop`, `GET /`, `GET /:id`, `GET /:id/download`).
+  - Created `frontend/js/recording.js` to manage UI controls, live timer, and polling-based history list.
+  - Styled recording panel in `frontend/css/style.css` matching existing UI.
+  - Ensured recordings are securely stored in `backend/recordings/` and excluded from git except `.gitkeep`.
+- **Outcome**: Users can record and download multiple sessions seamlessly.
